@@ -117,10 +117,12 @@ public class Move
 {
     public int CarId { get; set; }
     public string Direction { get; set; }
-    public Move(int carId, string direction)
+    public Move PreviousMove { get; set; }
+    public Move(int carId, string direction, Move previousMove)
     {
         CarId = carId;
         Direction = direction;
+        PreviousMove = previousMove;
     }
 }
 
@@ -177,7 +179,7 @@ public class GameManager
             (car.Axis == "V" && car.X == x && y >= car.Y && y < car.Y + car.Length));
     }
 
-    public List<Move> GetPossibleMoves(Board board)
+    public List<Move> GetPossibleMoves(Board board, Move currentMove)
     {
         List<Move> possibleMoves = new List<Move>();
         foreach (Car car in board.Cars)
@@ -186,19 +188,19 @@ public class GameManager
             {
                 // Check left
                 if (car.X > 0 && !IsOccupied(board, car.X - 1, car.Y))
-                    possibleMoves.Add(new Move(car.Id, "LEFT"));
+                    possibleMoves.Add(new Move(car.Id, "LEFT", currentMove));
                 // Check right
                 if (car.X + car.Length < board.Width && !IsOccupied(board, car.X + car.Length, car.Y))
-                    possibleMoves.Add(new Move(car.Id, "RIGHT"));
+                    possibleMoves.Add(new Move(car.Id, "RIGHT", currentMove));
             }
             else
             {
                 // Check up
                 if (car.Y > 0 && !IsOccupied(board, car.X, car.Y - 1))
-                    possibleMoves.Add(new Move(car.Id, "UP"));
+                    possibleMoves.Add(new Move(car.Id, "UP", currentMove));
                 // Check down
                 if (car.Y + car.Length < board.Height && !IsOccupied(board, car.X, car.Y + car.Length))
-                    possibleMoves.Add(new Move(car.Id, "DOWN"));
+                    possibleMoves.Add(new Move(car.Id, "DOWN", currentMove));
             }
         }
         return possibleMoves;
@@ -214,28 +216,44 @@ public class GameManager
         return sb.ToString();
     }
 
-    public IEnumerable<Move> FindBestMove(Board board)
+    public IEnumerable<Move> ContructMovingPlan(Move lastMove)
     {
-        Queue<(Board, List<Move>)> queue = new Queue<(Board, List<Move>)>();
+        List<Move> plan = new List<Move>();
+        Move currentMove = lastMove;
+        while (currentMove != null)
+        {
+            plan.Add(currentMove);
+            currentMove = currentMove.PreviousMove;
+        }
+        plan.Reverse();
+        return plan;
+    }
+
+    public IEnumerable<Move> FindBestMove(Board board, Move firstMove)
+    {
+        Queue<(Board, Move)> queue = new Queue<(Board, Move)>();
         HashSet<string> visited = new HashSet<string>();
-        queue.Enqueue((DeepCopyBoard(board), new List<Move>()));
+        queue.Enqueue((DeepCopyBoard(board), firstMove));
         visited.Add(GetBoardState(board));
         while (queue.Count > 0)
         {
-            var (currentBoard, moves) = queue.Dequeue();
+            var (currentBoard, currentMove) = queue.Dequeue();
             if (IsWinningState(currentBoard))
-                return moves;
-            foreach (var move in GetPossibleMoves(currentBoard))
+            {
+                // write a function to backtrack the moves from lastMove to firstMove
+                // and return the list of moves
+                return ContructMovingPlan(currentMove);    
+            }
+
+            foreach (var nextMove in GetPossibleMoves(currentBoard, currentMove))
             {
                 Board newBoard = DeepCopyBoard(currentBoard);
-                MoveCar(newBoard, move.CarId, move.Direction);
+                MoveCar(newBoard, nextMove.CarId, nextMove.Direction);
                 string boardState = GetBoardState(newBoard);
                 if (!visited.Contains(boardState))
                 {
                     visited.Add(boardState);
-                    var newMoves = new List<Move>(moves);
-                    newMoves.Add(move);
-                    queue.Enqueue((newBoard, newMoves));
+                    queue.Enqueue((newBoard, nextMove));
                 }
             }
         }
@@ -271,9 +289,12 @@ class Player
 
             }
 
+            Move dummy= new Move(-1, "", null);
+
             if (plan == null)
             {
-                plan = gameManager.FindBestMove(board)?.ToList();
+                plan = gameManager.FindBestMove(board, dummy)?.ToList();
+                plan.RemoveAt(0);
             }
 
             if (plan != null && plan.Count > 0)
